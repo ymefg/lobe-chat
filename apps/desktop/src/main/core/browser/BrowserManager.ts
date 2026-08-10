@@ -257,21 +257,48 @@ export class BrowserManager {
   }
 
   /**
+   * Consume a route captured before an update restart. The captured route is
+   * cleared before any navigation decision so a subsequent normal launch never
+   * restores a stale route.
+   */
+  private consumePendingRestoreRoute(): string {
+    const pendingRestoreRoute = this.app.storeManager.get('pendingRestoreRoute', '');
+    if (pendingRestoreRoute) this.app.storeManager.set('pendingRestoreRoute', '');
+    return pendingRestoreRoute;
+  }
+
+  private resolveMainWindowInitialPath(
+    isOnboardingCompleted: boolean,
+    pendingRestoreRoute: string,
+  ): string {
+    if (!isOnboardingCompleted) return '/desktop-onboarding';
+    if (pendingRestoreRoute) return pendingRestoreRoute;
+    return '/';
+  }
+
+  /**
    * Initialize all browsers when app starts up
    */
   async initializeBrowsers() {
     logger.info('Initializing all browsers');
 
-    // Check if onboarding is completed (remote server configured)
+    // A configured remote server only proves that Login completed. The explicit
+    // marker keeps the remaining first-run steps resumable after a relaunch.
     const remoteServerConfigCtr = this.app.getController(RemoteServerConfigCtr);
-    const isOnboardingCompleted = await remoteServerConfigCtr.isRemoteServerConfigured();
+    const isRemoteServerConfigured = await remoteServerConfigCtr.isRemoteServerConfigured();
+    const desktopOnboardingCompleted = this.app.storeManager.get('desktopOnboardingCompleted');
+    const isOnboardingCompleted = isRemoteServerConfigured && desktopOnboardingCompleted !== false;
 
     Object.values(appBrowsers).forEach((browser: BrowserWindowOpts) => {
       logger.debug(`Initializing browser: ${browser.identifier}`);
 
       // Dynamically determine initial path for main window
       if (browser.identifier === BrowsersIdentifiers.app) {
-        const initialPath = isOnboardingCompleted ? '/' : '/desktop-onboarding';
+        const pendingRestoreRoute = this.consumePendingRestoreRoute();
+        const initialPath = this.resolveMainWindowInitialPath(
+          isOnboardingCompleted,
+          pendingRestoreRoute,
+        );
         browser = {
           ...browser,
           keepAlive: isLinux ? false : browser.keepAlive,
@@ -342,6 +369,11 @@ export class BrowserManager {
   isWindowMaximized(identifier: string) {
     const browser = this.browsers.get(identifier);
     return browser?.browserWindow.isMaximized() ?? false;
+  }
+
+  isWindowFullScreen(identifier: string) {
+    const browser = this.browsers.get(identifier);
+    return browser?.browserWindow.isFullScreen() ?? false;
   }
 
   setWindowSize(identifier: string, size: { height?: number; width?: number }) {

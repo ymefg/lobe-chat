@@ -8,7 +8,7 @@
  * (not `directory`), so cwd fell back to `process.cwd()`. With no glob/include
  * filter, `tool.*name.*mcp` matched every dist/* bundle and tsbuildinfo.
  *
- * See LOBE-8666 / the agent screenshot that reported the leak.
+ * See / the agent screenshot that reported the leak.
  */
 import { describe, expect, it, vi } from 'vitest';
 
@@ -118,6 +118,67 @@ describe('localSystemExecutor.grepContent — params forwarding', () => {
   });
 });
 
+describe('localSystemExecutor.grepContent — working directory default', () => {
+  const mockRuntime = () => {
+    const runtime = (localSystemExecutor as any).runtime as {
+      grepContent: (args: any) => Promise<unknown>;
+    };
+    return vi.spyOn(runtime, 'grepContent').mockResolvedValue({
+      content: 'Found 0 matches in 0 locations:',
+      state: { matches: [], pattern: 'foo', totalMatches: 0 },
+      success: true,
+    });
+  };
+
+  // The grep systemRole tells the model `scope` "defaults to the working
+  // directory". Without a fallback, an omitted/relative scope fell through to the
+  // Electron main process `process.cwd()` (`/` in a packaged app) → 0 matches.
+  it('defaults an omitted scope to ctx.workingDirectory', async () => {
+    const spy = mockRuntime();
+
+    await localSystemExecutor.grepContent({ pattern: 'foo' }, {
+      messageId: 'm1',
+      workingDirectory: '/Users/me/project',
+    } as never);
+
+    expect((spy.mock.calls[0][0] as { path?: string }).path).toBe('/Users/me/project');
+    spy.mockRestore();
+  });
+
+  it('anchors a relative scope (".") onto ctx.workingDirectory', async () => {
+    const spy = mockRuntime();
+
+    await localSystemExecutor.grepContent({ 'pattern': 'foo', 'scope': '.' }, {
+      messageId: 'm1',
+      workingDirectory: '/Users/me/project',
+    } as never);
+
+    expect((spy.mock.calls[0][0] as { path?: string }).path).toBe('/Users/me/project');
+    spy.mockRestore();
+  });
+
+  it('keeps an absolute scope as-is even when a working directory is present', async () => {
+    const spy = mockRuntime();
+
+    await localSystemExecutor.grepContent({ 'pattern': 'foo', 'scope': '/abs/elsewhere' }, {
+      messageId: 'm1',
+      workingDirectory: '/Users/me/project',
+    } as never);
+
+    expect((spy.mock.calls[0][0] as { path?: string }).path).toBe('/abs/elsewhere');
+    spy.mockRestore();
+  });
+
+  it('leaves params untouched when no scope and no working directory (web)', async () => {
+    const spy = mockRuntime();
+
+    await localSystemExecutor.grepContent({ pattern: 'foo' }, { messageId: 'm1' } as never);
+
+    expect((spy.mock.calls[0][0] as { path?: string }).path).toBeUndefined();
+    spy.mockRestore();
+  });
+});
+
 describe('localSystemExecutor.listFiles — limit forwarding', () => {
   it('forwards the manifest-exposed `limit` to the runtime', async () => {
     const runtime = (localSystemExecutor as any).runtime as {
@@ -148,7 +209,7 @@ describe('localSystemExecutor.getCommandOutput — filter forwarding', () => {
     };
     const spy = vi.spyOn(runtime, 'getCommandOutput').mockResolvedValue({
       content: '',
-      state: { newOutput: '', running: false, success: true },
+      state: { exitCode: 0, newOutput: '', success: true },
       success: true,
     });
 
@@ -158,6 +219,33 @@ describe('localSystemExecutor.getCommandOutput — filter forwarding', () => {
       commandId: 'sh-1',
       filter: 'ERROR',
     });
+
+    spy.mockRestore();
+  });
+
+  it('preserves `exitCode` state from getCommandOutput', async () => {
+    const runtime = (localSystemExecutor as any).runtime as {
+      getCommandOutput: (args: any) => Promise<unknown>;
+    };
+    const spy = vi.spyOn(runtime, 'getCommandOutput');
+
+    spy.mockResolvedValueOnce({
+      content: '',
+      state: { exitCode: undefined, newOutput: '', success: true },
+      success: true,
+    });
+
+    const runningResult = await localSystemExecutor.getCommandOutput({ shell_id: 'sh-running' });
+    expect(runningResult.state).toMatchObject({ exitCode: undefined });
+
+    spy.mockResolvedValueOnce({
+      content: '',
+      state: { exitCode: 0, newOutput: 'done', success: true },
+      success: true,
+    });
+
+    const doneResult = await localSystemExecutor.getCommandOutput({ shell_id: 'sh-done' });
+    expect(doneResult.state).toMatchObject({ exitCode: 0 });
 
     spy.mockRestore();
   });

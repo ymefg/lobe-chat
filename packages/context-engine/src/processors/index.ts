@@ -9,10 +9,11 @@ export {
   type OrchestrationAgentInfo,
 } from './GroupOrchestrationFilter';
 export { GroupRoleTransformProcessor } from './GroupRoleTransform';
-export { HistoryTruncateProcessor } from './HistoryTruncate';
+export { getSlicedMessages, HistoryTruncateProcessor } from './HistoryTruncate';
 export { InputTemplateProcessor } from './InputTemplate';
 export { MessageCleanupProcessor } from './MessageCleanup';
 export { MessageContentProcessor } from './MessageContent';
+export { PlaceholderMessageFilterProcessor } from './PlaceholderMessageFilter';
 export {
   buildPlaceholderGenerators,
   formatPlaceholderValues,
@@ -21,10 +22,12 @@ export {
 } from './PlaceholderVariables';
 export { ReactionFeedbackProcessor } from './ReactionFeedback';
 export { SupervisorRoleRestoreProcessor } from './SupervisorRoleRestore';
+export { TaskCallbackMessageProcessor } from './TaskCallbackMessage';
 export { TaskMessageProcessor } from './TaskMessage';
 export { TasksFlattenProcessor } from './TasksFlatten';
 export { ToolCallProcessor } from './ToolCall';
 export { ToolMessageReorder } from './ToolMessageReorder';
+export { VerifyMessageProcessor } from './VerifyMessage';
 
 // Re-export types
 export type { AgentInfo, GroupRoleTransformConfig } from './GroupRoleTransform';

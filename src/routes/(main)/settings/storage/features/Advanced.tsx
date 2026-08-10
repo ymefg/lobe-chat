@@ -1,92 +1,48 @@
 'use client';
 
 import { BRANDING_NAME } from '@lobechat/business-const';
-import { DEFAULT_SETTINGS } from '@lobechat/config';
-import { type FormGroupItemType } from '@lobehub/ui';
-import { Button, Form, Icon } from '@lobehub/ui';
-import { App, Switch } from 'antd';
-import isEqual from 'fast-deep-equal';
+import type { FormGroupItemType } from '@lobehub/ui';
+import { Form, Icon } from '@lobehub/ui';
+import { Button, confirmModal, Switch } from '@lobehub/ui/base-ui';
+import { App } from 'antd';
 import { HardDriveDownload, HardDriveUpload } from 'lucide-react';
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import AccountDeletion from '@/business/client/features/AccountDeletion';
+import { useTransferAgentsFormItem } from '@/business/client/hooks/useTransferAgentsFormItem';
 import { FORM_STYLE } from '@/const/layoutTokens';
 import DataImporter from '@/features/DataImporter';
+import { SettingsSearchAnchor } from '@/features/SettingsSearch/anchor';
 import { configService } from '@/services/config';
-import { useChatStore } from '@/store/chat';
-import { useFileStore } from '@/store/file';
 import { useServerConfigStore } from '@/store/serverConfig';
-import { serverConfigSelectors } from '@/store/serverConfig/selectors';
-import { useSessionStore } from '@/store/session';
-import { useToolStore } from '@/store/tool';
+import { featureFlagsSelectors, serverConfigSelectors } from '@/store/serverConfig/selectors';
 import { useUserStore } from '@/store/user';
-import { settingsSelectors } from '@/store/user/selectors';
+import { userGeneralSettingsSelectors } from '@/store/user/selectors';
 
 const AdvancedActions = () => {
-  const { t } = useTranslation('setting');
-  const [form] = Form.useForm();
-  const { message, modal } = App.useApp();
+  const { t } = useTranslation(['setting', 'common']);
+  const { message } = App.useApp();
+  const { hideDocs } = useServerConfigStore(featureFlagsSelectors);
   const enableBusinessFeatures = useServerConfigStore(serverConfigSelectors.enableBusinessFeatures);
-  const [clearSessions, clearSessionGroups] = useSessionStore((s) => [
-    s.clearSessions,
-    s.clearSessionGroups,
-  ]);
-  const [clearTopics, clearAllMessages] = useChatStore((s) => [
-    s.removeAllTopics,
-    s.clearAllMessages,
-  ]);
-  const [removeAllFiles] = useFileStore((s) => [s.removeAllFiles]);
-  const removeAllPlugins = useToolStore((s) => s.removeAllPlugins);
-  const settings = useUserStore(settingsSelectors.currentSettings, isEqual);
-  const [setSettings, resetSettings] = useUserStore((s) => [s.setSettings, s.resetSettings]);
-
-  const handleClear = useCallback(() => {
-    modal.confirm({
-      centered: true,
-      okButtonProps: {
-        danger: true,
-      },
-      onOk: async () => {
-        await clearSessions();
-        await removeAllPlugins();
-        await clearTopics();
-        await removeAllFiles();
-        await clearAllMessages();
-        await clearSessionGroups();
-
-        message.success(t('danger.clear.success'));
-      },
-      title: t('danger.clear.confirm'),
-    });
-  }, []);
+  const checked = useUserStore(userGeneralSettingsSelectors.telemetry);
+  const transferAgentsFormItems = useTransferAgentsFormItem();
+  const resetSettings = useUserStore((s) => s.resetSettings);
+  const updateGeneralConfig = useUserStore((s) => s.updateGeneralConfig);
 
   const handleReset = useCallback(() => {
-    modal.confirm({
-      centered: true,
+    confirmModal({
+      cancelText: t('cancel', { ns: 'common' }),
+      content: t('danger.reset.confirm'),
       okButtonProps: { danger: true },
+      okText: t('danger.reset.action'),
       onOk: () => {
         resetSettings();
-        form.setFieldsValue(DEFAULT_SETTINGS);
         message.success(t('danger.reset.success'));
       },
-      title: t('danger.reset.confirm'),
+      title: t('danger.reset.title'),
     });
-  }, []);
-
-  const analytics: FormGroupItemType = {
-    children: [
-      {
-        children: <Switch />,
-        desc: t('analytics.telemetry.desc', { appName: BRANDING_NAME }),
-        label: t('analytics.telemetry.title'),
-        minWidth: undefined,
-        name: ['general', 'telemetry'],
-        valuePropName: 'checked',
-      },
-    ],
-    title: t('analytics.title'),
-  };
+  }, [message, resetSettings, t]);
 
   const renderExportButtonFormItem = () => {
     return {
@@ -100,7 +56,11 @@ const AdvancedActions = () => {
           {t('storage.actions.export.button')}
         </Button>
       ),
-      label: t('storage.actions.export.title'),
+      label: (
+        <SettingsSearchAnchor id={'storage-export'}>
+          {t('storage.actions.export.title')}
+        </SettingsSearchAnchor>
+      ),
       layout: 'horizontal',
       minWidth: undefined,
     } as const;
@@ -116,22 +76,15 @@ const AdvancedActions = () => {
             </Button>
           </DataImporter>
         ),
-        label: t('storage.actions.import.title'),
+        label: (
+          <SettingsSearchAnchor id={'storage-import'}>
+            {t('storage.actions.import.title')}
+          </SettingsSearchAnchor>
+        ),
         layout: 'horizontal',
         minWidth: undefined,
       },
       ...(enableBusinessFeatures ? [renderExportButtonFormItem()] : []),
-      {
-        children: (
-          <Button danger type={'primary'} onClick={handleClear}>
-            {t('danger.clear.action')}
-          </Button>
-        ),
-        desc: t('danger.clear.desc'),
-        label: t('danger.clear.title'),
-        layout: 'horizontal',
-        minWidth: undefined,
-      },
       {
         children: (
           <Button danger type={'primary'} onClick={handleReset}>
@@ -139,23 +92,60 @@ const AdvancedActions = () => {
           </Button>
         ),
         desc: t('danger.reset.desc'),
-        label: t('danger.reset.title'),
+        label: (
+          <SettingsSearchAnchor id={'storage-reset'}>
+            {t('danger.reset.title')}
+          </SettingsSearchAnchor>
+        ),
         layout: 'horizontal',
         minWidth: undefined,
       },
     ],
     title: t('storage.actions.title'),
   };
+
+  const analytics: FormGroupItemType = {
+    children: [
+      {
+        children: (
+          <Switch
+            checked={!!checked}
+            onChange={(value) => {
+              updateGeneralConfig({ telemetry: value });
+            }}
+          />
+        ),
+        desc: t('analytics.telemetry.desc', { appName: BRANDING_NAME }),
+        label: (
+          <SettingsSearchAnchor id={'storage-telemetry'}>
+            {t('analytics.telemetry.title')}
+          </SettingsSearchAnchor>
+        ),
+        minWidth: undefined,
+        valuePropName: 'checked',
+      },
+    ],
+    title: t('analytics.title'),
+  };
+
+  const dataMigration: FormGroupItemType | undefined = transferAgentsFormItems
+    ? {
+        children: transferAgentsFormItems,
+        title: t('storage.migration.title'),
+      }
+    : undefined;
+
   return (
     <>
       <Form
         collapsible={false}
-        form={form}
-        initialValues={settings}
-        items={[analytics, system]}
         itemsType={'group'}
         variant={'filled'}
-        onValuesChange={setSettings}
+        items={[
+          ...(hideDocs ? [analytics] : []),
+          ...(dataMigration ? [dataMigration] : []),
+          system,
+        ]}
         {...FORM_STYLE}
       />
       {enableBusinessFeatures && <AccountDeletion />}

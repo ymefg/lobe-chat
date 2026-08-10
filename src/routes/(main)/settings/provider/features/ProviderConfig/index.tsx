@@ -2,7 +2,7 @@
 
 import { BRANDING_PROVIDER } from '@lobechat/business-const';
 import { AES_GCM_URL, BASE_PROVIDER_DOC_URL, FORM_STYLE } from '@lobechat/const';
-import { ProviderCombine } from '@lobehub/icons';
+import { ProviderCombine, ProviderIcon } from '@lobehub/icons';
 import { type FormGroupItemType, type FormItemProps } from '@lobehub/ui';
 import {
   Avatar,
@@ -14,10 +14,11 @@ import {
   stopPropagation,
   Tooltip,
 } from '@lobehub/ui';
+import { Switch } from '@lobehub/ui/base-ui';
 import { useDebounceFn } from 'ahooks';
-import { Form as AntdForm, Switch } from 'antd';
+import { Form as AntdForm } from 'antd';
 import { createStaticStyles, cssVar, cx, responsive } from 'antd-style';
-import { Loader2Icon, LockIcon } from 'lucide-react';
+import { InfoIcon, Loader2Icon, LockIcon } from 'lucide-react';
 import { type ReactNode } from 'react';
 import { memo, useCallback, useLayoutEffect, useRef } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
@@ -26,10 +27,15 @@ import { z } from 'zod';
 
 import { FormInput, FormPassword } from '@/components/FormInput';
 import { SkeletonInput, SkeletonSwitch } from '@/components/Skeleton';
+import { usePermission } from '@/hooks/usePermission';
 import { lambdaQuery } from '@/libs/trpc/client';
 import { aiProviderSelectors, useAiInfraStore } from '@/store/aiInfra';
 import { serverConfigSelectors, useServerConfigStore } from '@/store/serverConfig';
-import { type AiProviderDetailItem, type AiProviderSourceType } from '@/types/aiProvider';
+import {
+  type AiProviderDetailItem,
+  type AiProviderSourceType,
+  type UpdateAiProviderConfigParams,
+} from '@/types/aiProvider';
 import { AiProviderSourceEnum } from '@/types/aiProvider';
 
 import { KeyVaultsConfigKey, LLMProviderApiTokenKey, LLMProviderBaseUrlKey } from '../../const';
@@ -65,6 +71,11 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
     }
   `,
   form: css`
+    /* The group header is the first thing on the page, so its own top padding
+       reads as dead space under the nav bar. The page inset is enough. */
+    .${prefixCls}-collapse-header {
+      padding-block-start: 0 !important;
+    }
     .${prefixCls}-form-item-control:has(.${prefixCls}-input,.${prefixCls}-select) {
       flex: none;
     }
@@ -113,6 +124,7 @@ export interface ProviderConfigProps extends Omit<AiProviderDetailItem, 'enabled
     placeholder?: string;
     showModelFetcher?: boolean;
   };
+  normalizeConfigValues?: (values: UpdateAiProviderConfigParams) => UpdateAiProviderConfigParams;
   showAceGcm?: boolean;
   source?: AiProviderSourceType;
   title?: ReactNode;
@@ -134,6 +146,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
     source = AiProviderSourceEnum.Builtin,
     apiKeyUrl,
     title,
+    normalizeConfigValues,
   }) => {
     const {
       authType,
@@ -146,6 +159,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
     } = settings || {};
     const { t } = useTranslation('modelProvider');
     const [form] = Form.useForm();
+    const { allowed: canManageProvider } = usePermission('manage_provider_key');
 
     const isOAuthProvider = authType === 'oauthDeviceFlow';
 
@@ -154,7 +168,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
       { providerId: id },
       { enabled: isOAuthProvider, refetchOnWindowFocus: true },
     );
-    const isOAuthAuthenticated = oauthStatus?.isAuthenticated ?? false;
+    const isOAuthAuthenticated = oauthStatus?.status === 'ACTIVE';
 
     const [
       data,
@@ -227,6 +241,9 @@ const ProviderConfig = memo<ProviderConfigProps>(
         ...(providerRuntimeConfig?.config && { config: providerRuntimeConfig.config }),
       };
 
+      // Clear the previous provider's field state first so omitted keys do not
+      // leak old values when the next provider has empty credentials.
+      form.resetFields();
       // Set form values and mark as initialized
       form.setFieldsValue(mergedData);
       lastInitializedIdRef.current = id;
@@ -247,6 +264,12 @@ const ProviderConfig = memo<ProviderConfigProps>(
       },
       [updateAiProviderConfig],
     );
+
+    const normalizeValues = useCallback(
+      (values: UpdateAiProviderConfigParams) => normalizeConfigValues?.(values) ?? values,
+      [normalizeConfigValues],
+    );
+
     const { run: debouncedHandleValueChange } = useDebounceFn(handleValueChange, {
       wait: 500,
     });
@@ -416,7 +439,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
                   // Set connection test state to prevent duplicate requests from onValuesChange
                   isCheckingConnection.current = true;
                   // Proactively save the latest form values to ensure fetchAiProviderRuntimeState retrieves up-to-date data
-                  await updateAiProviderConfig(id, form.getFieldsValue());
+                  await updateAiProviderConfig(id, normalizeValues(form.getFieldsValue()));
                 }}
               />
             ),
@@ -438,7 +461,11 @@ const ProviderConfig = memo<ProviderConfigProps>(
         style={{
           height: 24,
           maxHeight: 24,
-          ...(enabled ? {} : { filter: 'grayscale(100%)', maxHeight: 24, opacity: 0.66 }),
+          // OAuth providers keep full-colour branding while off: the enable
+          // switch sits right beside them, so dimming only adds noise
+          ...(enabled || isOAuthProvider
+            ? {}
+            : { filter: 'grayscale(100%)', maxHeight: 24, opacity: 0.66 }),
         }}
       >
         {isCustom ? (
@@ -452,7 +479,24 @@ const ProviderConfig = memo<ProviderConfigProps>(
           </Flexbox>
         ) : (
           <>
-            {title ?? <ProviderCombine provider={id} size={24} />}
+            {title ??
+              // OAuth providers sell a subscription plan rather than the vendor
+              // platform, so the plan name reads truer than the vendor wordmark
+              // the combined logo would render (e.g. ChatGPT vs. OpenAI).
+              (isOAuthProvider ? (
+                <Flexbox horizontal align={'center'} gap={8}>
+                  <ProviderIcon
+                    provider={id}
+                    shape={'square'}
+                    size={24}
+                    style={{ borderRadius: 6 }}
+                    type={'avatar'}
+                  />
+                  {name}
+                </Flexbox>
+              ) : (
+                <ProviderCombine provider={id} size={24} />
+              ))}
             <Tooltip title={t('providerModels.config.helpDoc')}>
               <a
                 href={urlJoin(BASE_PROVIDER_DOC_URL, id)}
@@ -475,7 +519,21 @@ const ProviderConfig = memo<ProviderConfigProps>(
         {extra}
         {isCustom && <UpdateProviderInfo />}
         {canDeactivate && !(enableBusinessFeatures && id === BRANDING_PROVIDER) && (
-          <EnableSwitch id={id} key={id} />
+          <>
+            {/* OAuth providers pair the switch with a connect action, so the
+                built-in notice would crowd the row */}
+            {!isCustom && !isOAuthProvider && (
+              <Tooltip title={t('providerModels.config.builtinNotice')}>
+                <Icon
+                  color={cssVar.colorTextTertiary}
+                  icon={InfoIcon}
+                  size={16}
+                  onClick={stopPropagation}
+                />
+              </Tooltip>
+            )}
+            <EnableSwitch id={id} key={id} />
+          </>
         )}
       </Flexbox>
     );
@@ -494,8 +552,10 @@ const ProviderConfig = memo<ProviderConfigProps>(
       <>
         {isOAuthProvider && (
           <OAuthDeviceFlowAuth
+            // when the provider cannot be deactivated there is no switch to
+            // gate on, so the connect action stays available
+            enabled={!canDeactivate || enabled}
             extra={headerExtra}
-            name={name || id}
             providerId={id}
             title={headerTitle}
             onAuthChange={handleOAuthChange}
@@ -504,11 +564,13 @@ const ProviderConfig = memo<ProviderConfigProps>(
         {shouldShowForm && (
           <Form
             className={cx(styles.form, className)}
+            disabled={!canManageProvider}
             form={form}
             items={[model]}
             variant={'borderless'}
             onValuesChange={(_, values) => {
-              debouncedHandleValueChange(id, values);
+              if (!canManageProvider) return;
+              debouncedHandleValueChange(id, normalizeValues(values));
             }}
             {...FORM_STYLE}
           />

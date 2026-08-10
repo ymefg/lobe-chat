@@ -209,7 +209,34 @@ describe('assertContextWithinWindow', () => {
     ).toThrow(ContextExceededPreFlightError);
   });
 
-  it('attaches LOBE-8974 structured payload via toPayload()', () => {
+  it('does not count base64 image data as text tokens', () => {
+    const base64Data = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'.repeat(
+      2000,
+    );
+
+    expect(() =>
+      assertContextWithinWindow(
+        {
+          messages: [
+            {
+              content: [
+                { text: 'Describe this image', type: 'text' },
+                {
+                  image_url: { url: `data:image/png;base64,${base64Data}` },
+                  type: 'image_url',
+                },
+              ],
+              role: 'user',
+            },
+          ],
+          model: 'vision-model',
+        } as any,
+        [baseModel({ contextWindowTokens: 2000, id: 'vision-model' })],
+      ),
+    ).not.toThrow();
+  });
+
+  it('attaches structured payload via toPayload', () => {
     const longContent = 'a'.repeat(20_000);
     try {
       assertContextWithinWindow(
@@ -233,7 +260,7 @@ describe('assertContextWithinWindow', () => {
   });
 
   it('does NOT reject a near-limit prompt that still fits within the window', () => {
-    // Regression test for LOBE-8974 PR review feedback: the helper was
+    // Regression test for PR review feedback: the helper was
     // previously deducting a 1024 buffer + 1024 minOutputTokens and would
     // throw for a 198.5k-token prompt against a 200k-token window even
     // though the upstream would accept it. With the corrected threshold,

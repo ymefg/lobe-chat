@@ -548,6 +548,9 @@ describe('LobeAnthropicAI', () => {
         vi.spyOn(customInstance['client'].messages, 'create').mockRejectedValue(apiError);
 
         // Act & Assert
+        // anthropicCompatibleFactory normalizes the `/v1` suffix away (see #14960),
+        // then desensitizeUrl reconstructs via the WHATWG URL parser which always
+        // emits a trailing `/` in the pathname.
         await expect(
           customInstance.chat({
             messages: [{ content: 'Hello', role: 'user' }],
@@ -555,7 +558,7 @@ describe('LobeAnthropicAI', () => {
             temperature: 0,
           }),
         ).rejects.toEqual({
-          endpoint: 'https://api.cu****om.com/v1',
+          endpoint: 'https://api.cu****om.com/',
           error: apiError,
           errorType: invalidErrorType,
           provider,
@@ -881,7 +884,8 @@ describe('LobeAnthropicAI', () => {
           model: 'claude-opus-4-7',
           output_config: { effort: 'xhigh' },
           system: undefined,
-          thinking: { type: 'adaptive' },
+          // Opus 4.7 defaults `display` to `omitted`, so reasoning has to be opted into
+          thinking: { display: 'summarized', type: 'adaptive' },
           tools: undefined,
         });
       });
@@ -893,6 +897,28 @@ describe('LobeAnthropicAI', () => {
             { content: 'Partial assistant draft', role: 'assistant' },
           ],
           model: 'claude-opus-4-7',
+        };
+
+        const result = await buildDefaultAnthropicPayload(payload);
+
+        expect(result.messages).toEqual([
+          {
+            content: 'Continue this answer',
+            role: 'user',
+          },
+        ]);
+      });
+
+      it('should drop ALL stacked trailing assistant messages (LOBE-12572)', async () => {
+        // Failed-run placeholder rows can stack several assistant turns at the
+        // payload tail; popping only one still triggers the prefill 400.
+        const payload: ChatStreamPayload = {
+          messages: [
+            { content: 'Continue this answer', role: 'user' },
+            { content: '...', role: 'assistant' },
+            { content: '...', role: 'assistant' },
+          ],
+          model: 'claude-opus-5',
         };
 
         const result = await buildDefaultAnthropicPayload(payload);

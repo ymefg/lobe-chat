@@ -1,11 +1,19 @@
+import { getSingletonAnalyticsOptional } from '@lobehub/analytics';
+
 export const ONBOARDING_METRICS_EVENTS = {
+  COMPLETED: 'onboarding_completed',
   MARKETPLACE_PICKED: 'onboarding_marketplace_picked',
   MARKETPLACE_SHOWN: 'onboarding_marketplace_shown',
+  STEP_COMPLETED: 'onboarding_step_completed',
+  STEP_VIEWED: 'onboarding_step_viewed',
 } as const;
 
 export const ONBOARDING_METRICS_SPM = {
+  COMPLETED: 'onboarding.completed',
   MARKETPLACE_PICKED: 'onboarding.marketplace.picked',
   MARKETPLACE_SHOWN: 'onboarding.marketplace.shown',
+  STEP_COMPLETED: 'onboarding.step.completed',
+  STEP_VIEWED: 'onboarding.step.viewed',
 } as const;
 
 interface AnalyticsLike {
@@ -19,12 +27,66 @@ export const setOnboardingAnalyticsClient = (client: AnalyticsLike | null): void
 };
 
 const emit = (name: string, properties: Record<string, unknown>): void => {
-  if (!analyticsClient) return;
+  const client = analyticsClient ?? getSingletonAnalyticsOptional();
+  if (!client) return;
+
   try {
-    analyticsClient.track({ name, properties });
+    client.track({ name, properties });
   } catch (error) {
     console.error('[OnboardingMetrics] track failed', error);
   }
+};
+
+export type OnboardingFlow = 'agent' | 'classic' | 'common' | 'web';
+
+export type OnboardingStep =
+  | 'agentpicker'
+  | 'chief_agent'
+  | 'connect_apps'
+  | 'conversation'
+  | 'fullname'
+  | 'interests'
+  | 'learn_your_world'
+  | 'messenger'
+  | 'profile'
+  | 'prosettings'
+  | 'response_language'
+  | 'starter_tasks'
+  | 'telemetry'
+  | 'welcome';
+
+export interface OnboardingStepPayload extends Record<string, unknown> {
+  flow: OnboardingFlow;
+  skipped?: boolean;
+  step: OnboardingStep;
+  stepIndex?: number;
+}
+
+export interface OnboardingCompletedPayload extends Record<string, unknown> {
+  flow: Exclude<OnboardingFlow, 'common'>;
+  skipped?: boolean;
+  targetUrl?: string;
+}
+
+export const trackOnboardingStepViewed = (payload: OnboardingStepPayload): void => {
+  emit(ONBOARDING_METRICS_EVENTS.STEP_VIEWED, {
+    ...payload,
+    spm: ONBOARDING_METRICS_SPM.STEP_VIEWED,
+  });
+};
+
+export const trackOnboardingStepCompleted = (payload: OnboardingStepPayload): void => {
+  emit(ONBOARDING_METRICS_EVENTS.STEP_COMPLETED, {
+    ...payload,
+    spm: ONBOARDING_METRICS_SPM.STEP_COMPLETED,
+  });
+};
+
+export const trackOnboardingCompleted = (payload: OnboardingCompletedPayload): void => {
+  emit(ONBOARDING_METRICS_EVENTS.COMPLETED, {
+    ...payload,
+    spm: ONBOARDING_METRICS_SPM.COMPLETED,
+  });
 };
 
 export interface MarketplaceShownPayload {

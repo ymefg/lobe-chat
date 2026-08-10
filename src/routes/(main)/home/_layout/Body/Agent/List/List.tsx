@@ -15,6 +15,7 @@ import { SessionDefaultGroup } from '@/types/session';
 import CreateAgentButton from '../CreateAgentButton';
 import GroupItem from './AgentGroupItem';
 import AgentItem from './AgentItem';
+import { useKeepSidebarListed } from './useAgentList';
 
 interface SessionListProps {
   dataSource: SidebarAgentItem[];
@@ -22,10 +23,11 @@ interface SessionListProps {
   itemClassName?: string;
   itemStyle?: CSSProperties;
   onMoreClick?: () => void;
+  visibility?: 'private' | 'public';
 }
 
 const List = memo<SessionListProps>(
-  ({ onMoreClick, dataSource, groupId, itemStyle, itemClassName }) => {
+  ({ onMoreClick, dataSource, groupId, itemStyle, itemClassName, visibility }) => {
     const { t } = useTranslation('chat');
 
     // Early return for empty state
@@ -33,20 +35,25 @@ const List = memo<SessionListProps>(
 
     // Check if this is defaultList and if there are more agents
     const isDefaultList = groupId === SessionDefaultGroup.Default;
-    const ungroupedAgentsCount = useHomeStore(homeAgentListSelectors.ungroupedAgentsCount);
+    const ungroupedAgents = useHomeStore(homeAgentListSelectors.ungroupedAgents);
     const agentPageSize = useGlobalStore(systemStatusSelectors.agentPageSize);
     const openAllAgentsDrawer = useHomeStore((s) => s.openAllAgentsDrawer);
+    const keep = useKeepSidebarListed();
 
-    const hasMore = isDefaultList && ungroupedAgentsCount > agentPageSize;
+    // Count what the sidebar can actually show (caller's unpins excluded) so
+    // hidden items alone never surface a dangling "More" row.
+    const hasMore = isDefaultList && keep(ungroupedAgents).length > agentPageSize;
 
     // Empty custom/default groups always show the Create button so the user can populate them.
     // Non-empty lists only show it at the bottom of the default group; custom groups rely on
-    // the group header dropdown for further additions.
-    const showCreateButton = isEmpty ? groupId !== undefined : isDefaultList;
+    // the group header dropdown for further additions. When the default list overflows and we
+    // already render the "More" entry, hide the Create button to keep the footer compact —
+    // creation is still reachable from the group header dropdown.
+    const showCreateButton = isEmpty ? groupId !== undefined : isDefaultList && !hasMore;
 
     if (isEmpty) {
       return showCreateButton ? (
-        <CreateAgentButton className={itemClassName} groupId={groupId} />
+        <CreateAgentButton className={itemClassName} groupId={groupId} visibility={visibility} />
       ) : null;
     }
 
@@ -66,7 +73,9 @@ const List = memo<SessionListProps>(
             onClick={onMoreClick || openAllAgentsDrawer}
           />
         )}
-        {showCreateButton && <CreateAgentButton className={itemClassName} groupId={groupId} />}
+        {showCreateButton && (
+          <CreateAgentButton className={itemClassName} groupId={groupId} visibility={visibility} />
+        )}
       </Flexbox>
     );
   },

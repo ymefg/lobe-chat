@@ -1,16 +1,22 @@
+import { LobeAgentApiName, LobeAgentIdentifier } from '@lobechat/builtin-tool-lobe-agent';
+import {
+  UserInteractionApiName,
+  UserInteractionIdentifier,
+} from '@lobechat/builtin-tool-user-interaction';
 import {
   WebOnboardingApiName,
   WebOnboardingIdentifier,
 } from '@lobechat/builtin-tool-web-onboarding';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { installMarketplaceAgents } from '@/services/installMarketplaceAgents';
+
 import {
   prepareCustomInteractionSubmit,
   recordCustomInteractionResolution,
 } from './customInteractionHandlers';
-import { installMarketplaceAgents } from './installMarketplaceAgents';
 
-vi.mock('./installMarketplaceAgents', () => ({
+vi.mock('@/services/installMarketplaceAgents', () => ({
   installMarketplaceAgents: vi.fn(),
 }));
 
@@ -75,6 +81,23 @@ describe('customInteractionHandlers', () => {
       skippedAgentIds: ['template-existing'],
     });
     expect(result.options?.createUserMessage).toBe(false);
+  });
+
+  it.each([
+    [LobeAgentIdentifier, LobeAgentApiName.askUserQuestion],
+    [UserInteractionIdentifier, UserInteractionApiName.askUserQuestion],
+  ])('persists structured ask-user answers for %s', async (identifier, apiName) => {
+    const payload = {
+      'How broad should this pass be?': 'Focused',
+      'Which surfaces?': ['Chat', 'Settings'],
+    };
+
+    const result = await prepareCustomInteractionSubmit(identifier, payload, { apiName });
+
+    expect(result).toEqual({
+      options: { pluginState: { askUserAnswers: payload } },
+      payload,
+    });
   });
 
   it('persists skipped marketplace picks from the original tool arguments', async () => {

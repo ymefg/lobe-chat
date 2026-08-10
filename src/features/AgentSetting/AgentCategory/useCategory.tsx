@@ -1,6 +1,6 @@
 import { Icon } from '@lobehub/ui';
 import { type MenuItemType } from 'antd/es/menu/interface';
-import { Activity, Bot, BrainCog, Handshake, MessagesSquare, Mic2 } from 'lucide-react';
+import { Activity, Bot, Handshake, LinkIcon } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -33,25 +33,15 @@ export const useCategory = ({ mobile }: UseCategoryOptions = {}) => {
           key: ChatSettingsTabs.Opening,
           label: t('agentTab.opening'),
         }) as MenuItemType,
-        {
-          icon: <Icon icon={MessagesSquare} size={iconSize} />,
-          key: ChatSettingsTabs.Chat,
-          label: t('agentTab.chat'),
-        },
-        {
-          icon: <Icon icon={BrainCog} size={iconSize} />,
-          key: ChatSettingsTabs.Modal,
-          label: t('agentTab.modal'),
-        },
         enableAgentSelfIteration && {
           icon: <Icon icon={Activity} size={iconSize} />,
           key: ChatSettingsTabs.SelfIteration,
           label: t('agentTab.selfIteration'),
         },
         {
-          icon: <Icon icon={Mic2} size={iconSize} />,
-          key: ChatSettingsTabs.TTS,
-          label: t('agentTab.tts'),
+          icon: <Icon icon={LinkIcon} size={iconSize} />,
+          key: ChatSettingsTabs.Connector,
+          label: t('agentTab.connector', 'Connectors'),
         },
       ].filter(Boolean) as MenuProps['items'],
     [t, isInbox, iconSize, enableAgentSelfIteration],

@@ -1,6 +1,6 @@
-import { type AiFullModelCard } from 'model-bank';
-import { estimateTokenCount } from 'tokenx';
+import type { AiFullModelCard } from 'model-bank';
 
+import { estimateOpenAIChatInputTokens } from '../core/usageConverters';
 import type { ChatStreamPayload } from '../types/chat';
 
 /**
@@ -34,7 +34,7 @@ export interface ResolveSafeMaxTokensOptions {
  * `minOutputTokens` for completion (or already exceed the model's context
  * window). Caught by `openaiCompatibleFactory` and surfaced as an
  * `ExceededContextWindow` chat error carrying structured diagnostic fields
- * — see LOBE-8974 for the rationale of failing fast instead of issuing a
+ * — see for the rationale of failing fast instead of issuing a
  * doomed upstream request.
  */
 export class ContextExceededPreFlightError extends Error {
@@ -91,9 +91,7 @@ export class ContextExceededPreFlightError extends Error {
 
 const estimatePayloadInputTokens = (payload: Pick<ChatStreamPayload, 'messages' | 'tools'>) => {
   const { messages = [], tools } = payload;
-  const messagesText = JSON.stringify(messages);
-  const toolsText = tools && tools.length > 0 ? JSON.stringify(tools) : '';
-  return estimateTokenCount(messagesText) + (toolsText ? estimateTokenCount(toolsText) : 0);
+  return estimateOpenAIChatInputTokens(messages, { tools }).totalTokens;
 };
 
 /**
@@ -161,7 +159,7 @@ export interface AssertContextWithinWindowOptions {
  * completion — the upstream will pick its own `max_tokens` default once
  * the request is dispatched. Rejecting near-limit-but-fitting prompts
  * (e.g. 198.5k tokens against a 200k window) would block valid requests
- * that the upstream would happily serve. See LOBE-8974 review feedback.
+ * that the upstream would happily serve. See review feedback.
  */
 export const assertContextWithinWindow = (
   payload: Pick<ChatStreamPayload, 'messages' | 'model' | 'tools'>,

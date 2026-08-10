@@ -1,7 +1,8 @@
+import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { getTestDB } from '../../../core/getTestDB';
-import { sessions, topics, users } from '../../../schemas';
+import { messages, sessions, topics, users } from '../../../schemas';
 import type { LobeChatDatabase } from '../../../type';
 import { TopicModel } from '../../topic';
 
@@ -121,6 +122,73 @@ describe('TopicModel - Update', () => {
       });
 
       expect(result).toHaveLength(0);
+    });
+  });
+
+  describe('recomputeUsage', () => {
+    it('rolls the topic assistant messages into the denormalized usage/cost columns', async () => {
+      const topicId = 'usage-recompute-1';
+      // Seed a pinned model (config). The roll-up must preserve it, not overwrite
+      // it with the message's model — those columns hold the topic's config, not
+      // the measured dominant model (which lives in cost.llm.byModel).
+      await serverDB.insert(topics).values({
+        id: topicId,
+        model: 'pinned-model',
+        provider: 'pinned-provider',
+        sessionId,
+        userId,
+      });
+      await serverDB.insert(messages).values([
+        {
+          id: 'usage-msg-1',
+          metadata: {
+            performance: { duration: 500 },
+            usage: { cost: 0.003, totalInputTokens: 60, totalOutputTokens: 40, totalTokens: 100 },
+          },
+          model: 'gpt-4o',
+          provider: 'openai',
+          role: 'assistant',
+          topicId,
+          userId,
+        },
+        // a non-usage message must be ignored
+        { id: 'usage-msg-2', content: 'hi', role: 'user', topicId, userId },
+      ]);
+
+      await topicModel.recomputeUsage(topicId);
+
+      const [topic] = await serverDB.select().from(topics).where(eq(topics.id, topicId));
+      expect(topic.totalTokens).toBe(100);
+      expect(topic.totalInputTokens).toBe(60);
+      expect(topic.totalOutputTokens).toBe(40);
+      expect(topic.totalCost).toBeCloseTo(0.003, 6);
+      // Pinned model (config) is preserved — roll-up does not write the message model.
+      expect(topic.model).toBe('pinned-model');
+      expect(topic.provider).toBe('pinned-provider');
+      expect((topic.usage as any).llm).toEqual({
+        apiCalls: 1,
+        processingTimeMs: 500,
+        tokens: { input: 60, output: 40, total: 100 },
+      });
+    });
+
+    it('resets the usage columns to NULL when the topic has no measurable usage', async () => {
+      const topicId = 'usage-recompute-2';
+      await serverDB.insert(topics).values({
+        id: topicId,
+        sessionId,
+        totalCost: 1.23,
+        totalTokens: 999,
+        userId,
+      });
+
+      await topicModel.recomputeUsage(topicId);
+
+      const [topic] = await serverDB.select().from(topics).where(eq(topics.id, topicId));
+      expect(topic.totalTokens).toBeNull();
+      expect(topic.totalCost).toBeNull();
+      expect(topic.usage).toBeNull();
+      expect(topic.cost).toBeNull();
     });
   });
 });
